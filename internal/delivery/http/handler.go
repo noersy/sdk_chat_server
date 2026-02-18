@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -34,8 +35,8 @@ func (h *Handler) SetupRoutes(app *fiber.App) {
 	// REST → WebSocket bridge
 	app.Post("/messages", h.handleBroadcast)
 
-	// Socket.IO — mounts WebSocket + protocol handlers at /socket.io/
-	h.hub.Io.Server(app.Group("/socket.io"))
+	// Socket.IO - mounts handler using adaptor
+	app.All("/socket.io/*", adaptor.HTTPHandler(h.hub.Server))
 }
 
 func (h *Handler) healthCheck(c *fiber.Ctx) error {

@@ -14,7 +14,7 @@ A scalable, real-time chat server built with Go, Fiber, Socket.IO, and Redis. De
 
 ## 🏗 Architecture
 
-```
+```text
 cmd/server/          - Application entry point
 config/              - Configuration management
 internal/
@@ -72,10 +72,10 @@ The server will be available at `http://localhost:8080`.
 
 ### REST Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Server health check (Returns `{"status": "ok"}`) |
-| POST | `/messages` | Broadcast message to a room via HTTP |
+| Method | Endpoint    | Description                                      |
+|:-------|:------------|:-------------------------------------------------|
+| GET    | `/health`   | Server health check (Returns `{"status": "ok"}`) |
+| POST   | `/messages` | Broadcast message to a room via HTTP             |
 
 #### Broadcast Message
 
@@ -214,3 +214,36 @@ See [deploy.sh](deploy.sh) for details.
 ## 📄 License
 
 MIT
+
+## ❓ Troubleshooting
+
+### Backend-to-Backend Integration
+
+If you are connecting from another backend service (e.g., Node.js, PHP, Python), **do not use a Socket.IO client**. Instead, use the **REST API** to broadcast messages.
+
+**Example (Node.js / Axios):**
+
+```javascript
+const axios = require('axios');
+
+await axios.post('http://localhost:8080/messages', {
+  room_id: "room-123",
+  user_id: "system",
+  content: "System Notification",
+  type: "text"
+});
+```
+
+**Example (cURL):**
+
+```bash
+curl -X POST http://localhost:8080/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "room_id": "room-123",
+    "user_id": "system",
+    "username": "System",
+    "content": "Hello via REST",
+    "type": "text"
+  }'
+```

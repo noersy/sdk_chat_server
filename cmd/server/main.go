@@ -25,7 +25,7 @@ func main() {
 
 	// Initialize WebSocket hub with Redis
 	hub := websocket.NewHub(redisClient)
-	go hub.Run()
+	hub.Run() // Starts the socket.io server and redis subscriber
 
 	// Initialize HTTP server
 	server := http.NewServer(cfg.Server, hub)
