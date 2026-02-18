@@ -5,8 +5,10 @@ A scalable, real-time chat server built with Go, Fiber, Socket.IO, and Redis. De
 ## 🚀 Features
 
 - **Socket.IO Support**: Real-time bidirectional event-based communication.
-- **Redis Adapter**: Horizontal scaling support (clustering).
+- **Redis Adapter**: Horizontal scaling support (clustering) and pub/sub for cross-instance communication.
 - **Broadcast API**: REST endpoint to push messages to all connected clients in a room.
+- **User Status Tracking**: Real-time online/offline status and "last seen" tracking.
+- **Room Management**: Dynamic room creation and membership tracking.
 - **Health Check**: Simple endpoint for load balancers.
 - **Dockerized**: Ready for production deployment.
 
@@ -25,7 +27,7 @@ internal/
 ## 🛠 Prerequisites
 
 - Go 1.18 or higher
-- Redis 6+ (Optional, for scaling)
+- Redis 6+ (Required for state management and scaling)
 - Docker (Recommended)
 
 ## 📦 Setup Instructions
@@ -52,7 +54,7 @@ Edit `.env`:
 SERVER_PORT=8080
 SERVER_HOST=0.0.0.0
 
-# Redis (Required for scaling, optional for single node)
+# Redis (Required)
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
@@ -73,7 +75,7 @@ The server will be available at `http://localhost:8080`.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Server health check (Returns `{"status": "ok"}`) |
-| POST | `/messages` | Broadcast message to a room |
+| POST | `/messages` | Broadcast message to a room via HTTP |
 
 #### Broadcast Message
 
@@ -85,9 +87,12 @@ Body:
 {
   "room_id": "room-123",
   "content": "Hello World",
-  "user_id": "user-1",
-  "username": "Alice",
-  "type": "text"
+  "user_id": "system",
+  "username": "System",
+  "type": "text", 
+  "title": "Announcement",
+  "payload": { "priority": "high" },
+  "attachment_urls": ["https://example.com/file.pdf"]
 }
 ```
 
@@ -97,19 +102,112 @@ Connect using any Socket.IO client (v2/v3/v4).
 
 **Namespace:** `/socket.io/`
 
-**Client -> Server Events:**
+#### Client -> Server Events
 
-- `join`: Join a specific room.
-- `leave`: Leave a room.
-- `message`: Send a message to the room.
+1. **`authenticate`**
+    - **Description**: Authenticate the socket connection with a user identity.
+    - **Payload**:
 
-**Server -> Client Events:**
+        ```json
+        {
+          "user_id": "user-123",
+          "username": "John Doe"
+        }
+        ```
 
-- `message`: Receive a new message.
+2. **`join`**
+    - **Description**: Join a specific chat room.
+    - **Payload**:
 
-## 🚀 Deployment (Jenkins & Nginx)
+        ```json
+        {
+          "room_id": "room-abc"
+        }
+        ```
 
-This repository includes deployment scripts (`deploy.sh`, `generate-env.sh`) for CI/CD pipelines and an `nginx.conf` template for reverse proxy setup.
+3. **`leave`**
+    - **Description**: Leave a chat room.
+    - **Payload**:
+
+        ```json
+        {
+          "room_id": "room-abc"
+        }
+        ```
+
+4. **`message`**
+    - **Description**: Send a message to a room.
+    - **Payload**:
+
+        ```json
+        {
+          "room_id": "room-abc",
+          "content": "Hello team!",
+          "type": "text",
+          "title": "Optional Title",
+          "payload": { "custom": "data" },
+          "attachment_urls": []
+        }
+        ```
+
+5. **`subscribe_status`**
+    - **Description**: Subscribe to real-time status updates for a specific user.
+    - **Payload**:
+
+        ```json
+        {
+          "target_user_id": "user-456"
+        }
+        ```
+
+6. **`unsubscribe_status`**
+    - **Description**: Stop receiving status updates for a user.
+    - **Payload**:
+
+        ```json
+        {
+          "target_user_id": "user-456"
+        }
+        ```
+
+#### Server -> Client Events
+
+1. **`authenticated`**
+    - **Description**: Confirmation of successful authentication.
+    - **Payload**: User details (`user_id`, `username`).
+
+2. **`message`**
+    - **Description**: Received a new message in a joined room.
+    - **Payload**: Full message object (id, content, sender info, timestamp, etc.).
+
+3. **`user_online` / `user_offline`**
+    - **Description**: Status update for a subscribed user.
+    - **Payload**:
+
+        ```json
+        {
+          "type": "user_online",
+          "user_id": "user-456",
+          "username": "Jane Doe",
+          "is_online": true,
+          "last_seen": "2023-10-27T10:00:00Z"
+        }
+        ```
+
+4. **`room_users`**
+    - **Description**: sent after joining a room, lists current members.
+    - **Payload**: `{"room_id": "...", "users": ["id1", "id2"]}`
+
+5. **`user_joined` / `user_left`**
+    - **Description**: Notification when another user joins or leaves a room you are in.
+    - **Payload**: `{"room_id": "...", "user_id": "...", "username": "..."}`
+
+## 🚀 Deployment (CI/CD)
+
+This repository includes deployment scripts:
+
+- `deploy.sh`: Main deployment script.
+- `generate-env.sh`: Helper to generate `.env` from CI environment variables.
 
 See [deploy.sh](deploy.sh) for details.
 
