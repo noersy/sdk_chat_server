@@ -34,10 +34,39 @@ func NewServer(cfg config.ServerConfig, hub *websocket.Hub) *Server {
 	}
 }
 
+type responseWriterWrapper struct {
+	http.ResponseWriter
+	headerWritten bool
+}
+
+func (w *responseWriterWrapper) WriteHeader(statusCode int) {
+	if !w.headerWritten {
+		w.headerWritten = true
+		w.ResponseWriter.WriteHeader(statusCode)
+	}
+}
+
 func (s *Server) Start() error {
 	// Start Socket.IO server
 	mux := http.NewServeMux()
-	mux.Handle("/socket.io/", s.hub.Server)
+
+	// Wrap to handle CORS and prevent duplicate WriteHeader calls
+	mux.Handle("/socket.io/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Add CORS headers for cross-origin WebSocket connections
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Wrap response writer to prevent duplicate WriteHeader calls from Socket.IO library
+		wrapped := &responseWriterWrapper{ResponseWriter: w, headerWritten: false}
+		s.hub.Server.ServeHTTP(wrapped, r)
+	}))
 
 	s.socketSrv = &http.Server{
 		Addr:    s.socketAddr,
