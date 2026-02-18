@@ -16,7 +16,8 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/server/main.go
+# Use a more flexible path or ensure we are in the right directory
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/server/main.go || CGO_ENABLED=0 GOOS=linux go build -o main ./backend/cmd/server/main.go
 
 # Final stage
 FROM alpine:latest

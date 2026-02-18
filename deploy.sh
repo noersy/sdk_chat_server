@@ -5,7 +5,9 @@ set -e
 
 # Configuration
 APP_NAME="websocket-chat-backend"
-DEPLOY_DIR=$(pwd)
+# Move to the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+cd "$SCRIPT_DIR"
 ENV_FILE=".env"
 
 echo "🚀 Starting deployment for $APP_NAME..."
