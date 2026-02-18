@@ -24,31 +24,55 @@ if [ ! -f "$ENV_FILE" ]; then
     cp .env.example .env
 fi
 
-# 2. Pull latest changes (optional, usually handled by Jenkins Git plugin)
-# git pull origin main
+# 3. Cleanup old containers and volumes (force remove)
+echo "🧹 Cleaning up old containers..."
+docker compose down -v --remove-orphans 2>/dev/null || true
+sleep 2
 
-# 3. Build and restart services
-echo "📦 Building and restarting services..."
-docker compose down
+# 4. Wait for ports to be released
+echo "⏳ Waiting for ports to be released..."
+MAX_RETRIES=10
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if ! netstat -tlnp 2>/dev/null | grep -q ":6379\|:5432\|:${SERVER_PORT}"; then
+        echo "✅ Ports are available"
+        break
+    fi
+    echo "⏳ Waiting for ports to be released... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+    sleep 1
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+done
+
+# 5. Build and start services
+echo "📦 Building and starting services..."
 docker compose up --build -d
 
-# 4. Wait for services to be ready
+# 6. Wait for services to be ready
 echo "⏳ Waiting for services to be ready..."
-sleep 5
+sleep 8
 
-# 5. Check container status
+# 7. Check container status
 echo "🔍 Checking container status..."
 docker compose ps
 
-# 6. Basic Health Check (Adjust port if necessary)
+# 8. Basic Health Check
 echo "🏥 Performing health check..."
-# Assuming there's a health endpoint or just check if port is listening
 if command -v curl &> /dev/null; then
-    STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${SERVER_PORT}/health || echo "failed")
-    if [ "$STATUS" == "200" ] || [ "$STATUS" == "404" ]; then
-        echo "✅ Deployment successful! Service is reachable."
-    else
+    MAX_HEALTH_RETRIES=10
+    HEALTH_RETRY=0
+    while [ $HEALTH_RETRY -lt $MAX_HEALTH_RETRIES ]; do
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${SERVER_PORT}/health 2>/dev/null || echo "failed")
+        if [ "$STATUS" == "200" ] || [ "$STATUS" == "404" ]; then
+            echo "✅ Deployment successful! Service is reachable on port $SERVER_PORT"
+            break
+        fi
+        echo "⏳ Health check retry... ($((HEALTH_RETRY + 1))/$MAX_HEALTH_RETRIES)"
+        sleep 1
+        HEALTH_RETRY=$((HEALTH_RETRY + 1))
+    done
+    if [ "$STATUS" != "200" ] && [ "$STATUS" != "404" ]; then
         echo "⚠️  Health check returned status: $STATUS. Please check logs."
+        docker compose logs
     fi
 else
     echo "ℹ️  curl not found, skipping health check."
