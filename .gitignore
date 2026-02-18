@@ -1,3 +1,5 @@
-cmd
-backend/cmd
+# Binaries
+main
+
+# Environment
 .env
