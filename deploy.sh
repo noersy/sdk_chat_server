@@ -44,7 +44,7 @@ docker compose ps
 echo "🏥 Performing health check..."
 # Assuming there's a health endpoint or just check if port is listening
 if command -v curl &> /dev/null; then
-    STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health || echo "failed")
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${SERVER_PORT}/health || echo "failed")
     if [ "$STATUS" == "200" ] || [ "$STATUS" == "404" ]; then
         echo "✅ Deployment successful! Service is reachable."
     else
