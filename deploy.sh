@@ -12,7 +12,13 @@ ENV_FILE=".env"
 
 echo "🚀 Starting deployment for $APP_NAME..."
 
-# 1. Check if .env exists
+# 1. Pre-deployment checks
+if [ -z "$SERVER_PORT" ]; then
+    echo "⚠️  SERVER_PORT is not set. Defaulting to 8080."
+    export SERVER_PORT=8080
+fi
+
+# 2. Check if .env exists
 if [ ! -f "$ENV_FILE" ]; then
     echo "⚠️  $ENV_FILE not found. Using .env.example as template."
     cp .env.example .env
