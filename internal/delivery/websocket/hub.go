@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"html"
 	"log"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	socketio "github.com/googollee/go-socket.io"
+	"github.com/googollee/go-socket.io/engineio"
+	"github.com/googollee/go-socket.io/engineio/transport"
+	"github.com/googollee/go-socket.io/engineio/transport/polling"
+	"github.com/googollee/go-socket.io/engineio/transport/websocket"
 	"github.com/noersy/websocket-chat/pkg/utils"
 	"github.com/redis/go-redis/v9"
 )
@@ -46,7 +51,20 @@ type Hub struct {
 }
 
 func NewHub(redisClient *redis.Client) *Hub {
-	server := socketio.NewServer(nil)
+	server := socketio.NewServer(&engineio.Options{
+		Transports: []transport.Transport{
+			&polling.Transport{
+				CheckOrigin: func(r *http.Request) bool {
+					return true
+				},
+			},
+			&websocket.Transport{
+				CheckOrigin: func(r *http.Request) bool {
+					return true
+				},
+			},
+		},
+	})
 
 	h := &Hub{
 		Server:         server,
@@ -60,7 +78,11 @@ func NewHub(redisClient *redis.Client) *Hub {
 
 // Run starts the Redis PubSub listener for cross-instance broadcasting
 func (h *Hub) Run() {
-	go h.Server.Serve()
+	go func() {
+		if err := h.Server.Serve(); err != nil {
+			log.Printf("Socket.IO listen error: %s", err)
+		}
+	}()
 	go h.subscribeToRedis()
 }
 
@@ -78,6 +100,7 @@ func (h *Hub) PublishMessage(message []byte) {
 
 func (h *Hub) setupSocketIO() {
 	h.Server.OnConnect("/", func(s socketio.Conn) error {
+		log.Printf("Socket connected: %s", s.ID())
 		s.SetContext(&ConnectionState{})
 		return nil
 	})
