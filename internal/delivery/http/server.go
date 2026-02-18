@@ -38,7 +38,30 @@ func (s *Server) Start() error {
 	// Start Socket.IO on native HTTP server
 	go func() {
 		mux := http.NewServeMux()
-		mux.Handle("/socket.io/", s.hub.Server)
+
+		// Wrap Socket.IO handler to ensure proper polling transport
+		mux.HandleFunc("/socket.io/", func(w http.ResponseWriter, r *http.Request) {
+			// Add CORS headers first
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, GET, POST")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+			// Handle OPTIONS requests for CORS
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			// Log polling requests
+			transport := r.URL.Query().Get("transport")
+			if transport == "polling" {
+				log.Printf("Polling request: %s %s", r.Method, r.URL.String())
+				// Ensure text-based response for polling
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			}
+
+			s.hub.Server.ServeHTTP(w, r)
+		})
 
 		s.httpServer = &http.Server{
 			Addr:    s.addr,
