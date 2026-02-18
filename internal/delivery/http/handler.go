@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/doquangtan/gofiber-socket.io/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -30,6 +31,12 @@ func (h *Handler) SetupRoutes(app *fiber.App) {
 		AllowCredentials: true,
 	}))
 	app.Use(logger.New())
+
+	// Socket.IO endpoint
+	app.Get("/socket.io/", socketio.New(h.hub.Io))
+	app.Post("/socket.io/", socketio.New(h.hub.Io))
+	app.Get("/socket.io/*", socketio.New(h.hub.Io))
+	app.Post("/socket.io/*", socketio.New(h.hub.Io))
 
 	// Health check
 	app.Get("/health", h.healthCheck)

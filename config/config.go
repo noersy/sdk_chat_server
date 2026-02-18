@@ -11,10 +11,8 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port          string
-	Host          string
-	SocketIOPort  string
-	SocketIOHost  string
+	Port  string
+	Host  string
 }
 
 type DatabaseConfig struct {
@@ -34,10 +32,8 @@ type RedisConfig struct {
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port:         getEnv("SERVER_PORT", "8081"),
-			Host:         getEnv("SERVER_HOST", "0.0.0.0"),
-			SocketIOPort: getEnv("SOCKETIO_PORT", "8080"),
-			SocketIOHost: getEnv("SOCKETIO_HOST", "0.0.0.0"),
+			Port: getEnv("SERVER_PORT", "8080"),
+			Host: getEnv("SERVER_HOST", "0.0.0.0"),
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DB_HOST", "localhost"),

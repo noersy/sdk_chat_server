@@ -5,16 +5,11 @@ import (
 	"encoding/json"
 	"html"
 	"log"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	socketio "github.com/googollee/go-socket.io"
-	"github.com/googollee/go-socket.io/engineio"
-	"github.com/googollee/go-socket.io/engineio/transport"
-	"github.com/googollee/go-socket.io/engineio/transport/polling"
-	"github.com/googollee/go-socket.io/engineio/transport/websocket"
+	socketio "github.com/doquangtan/gofiber-socket.io/v2"
 	"github.com/noersy/websocket-chat/pkg/utils"
 	"github.com/redis/go-redis/v9"
 )
@@ -42,7 +37,7 @@ type ConnectionState struct {
 }
 
 type Hub struct {
-	Server         *socketio.Server
+	Io             *socketio.Io
 	redisClient    *redis.Client
 	mu             sync.RWMutex
 	userSockets    map[string]map[string]bool // userID -> set of socket IDs
@@ -51,23 +46,10 @@ type Hub struct {
 }
 
 func NewHub(redisClient *redis.Client) *Hub {
-	server := socketio.NewServer(&engineio.Options{
-		Transports: []transport.Transport{
-			&polling.Transport{
-				CheckOrigin: func(r *http.Request) bool {
-					return true
-				},
-			},
-			&websocket.Transport{
-				CheckOrigin: func(r *http.Request) bool {
-					return true
-				},
-			},
-		},
-	})
+	io := socketio.New()
 
 	h := &Hub{
-		Server:         server,
+		Io:             io,
 		redisClient:    redisClient,
 		userSockets:    make(map[string]map[string]bool),
 		statusVersions: make(map[string]int64),
@@ -83,7 +65,9 @@ func (h *Hub) Run() {
 
 // Close shuts down the server
 func (h *Hub) Close() {
-	h.Server.Close()
+	if h.Io != nil {
+		h.Io.Close()
+	}
 }
 
 // PublishMessage publishes a message to Redis for cross-instance broadcast
@@ -94,13 +78,12 @@ func (h *Hub) PublishMessage(message []byte) {
 }
 
 func (h *Hub) setupSocketIO() {
-	h.Server.OnConnect("/", func(s socketio.Conn) error {
+	h.Io.On("connection", func(s socketio.Socket) {
 		log.Printf("Socket connected: %s", s.ID())
 		s.SetContext(&ConnectionState{})
-		return nil
 	})
 
-	h.Server.OnEvent("/", "authenticate", func(s socketio.Conn, msg interface{}) {
+	h.Io.On("authenticate", func(s socketio.Socket, msg interface{}) {
 		state := s.Context().(*ConnectionState)
 		if state.Authed {
 			return
@@ -112,7 +95,7 @@ func (h *Hub) setupSocketIO() {
 				"error": "invalid auth payload",
 				"code":  "INVALID_PAYLOAD",
 			})
-			s.Close()
+			s.Disconnect()
 			return
 		}
 
@@ -122,7 +105,7 @@ func (h *Hub) setupSocketIO() {
 				"error": "user_id is required",
 				"code":  "MISSING_USER_ID",
 			})
-			s.Close()
+			s.Disconnect()
 			return
 		}
 
@@ -158,7 +141,7 @@ func (h *Hub) setupSocketIO() {
 		log.Printf("Socket authenticated: %s (%s)", uname, uid)
 	})
 
-	h.Server.OnEvent("/", "join", func(s socketio.Conn, msg interface{}) {
+	h.Io.On("join", func(s socketio.Socket, msg interface{}) {
 		state := s.Context().(*ConnectionState)
 		if !state.Authed {
 			s.Emit("error", map[string]interface{}{"error": "not authenticated", "code": "NOT_AUTHENTICATED"})
@@ -199,7 +182,7 @@ func (h *Hub) setupSocketIO() {
 		}
 	})
 
-	h.Server.OnEvent("/", "leave", func(s socketio.Conn, msg interface{}) {
+	h.Io.On("leave", func(s socketio.Socket, msg interface{}) {
 		state := s.Context().(*ConnectionState)
 		if !state.Authed {
 			return
@@ -229,7 +212,7 @@ func (h *Hub) setupSocketIO() {
 		}
 	})
 
-	h.Server.OnEvent("/", "message", func(s socketio.Conn, msg interface{}) {
+	h.Io.On("message", func(s socketio.Socket, msg interface{}) {
 		state := s.Context().(*ConnectionState)
 		if !state.Authed {
 			s.Emit("error", map[string]interface{}{"error": "not authenticated", "code": "NOT_AUTHENTICATED"})
@@ -308,7 +291,7 @@ func (h *Hub) setupSocketIO() {
 		})
 	})
 
-	h.Server.OnEvent("/", "subscribe_status", func(s socketio.Conn, msg interface{}) {
+	h.Io.On("subscribe_status", func(s socketio.Socket, msg interface{}) {
 		state := s.Context().(*ConnectionState)
 		if !state.Authed {
 			return
@@ -351,7 +334,7 @@ func (h *Hub) setupSocketIO() {
 		})
 	})
 
-	h.Server.OnEvent("/", "unsubscribe_status", func(s socketio.Conn, msg interface{}) {
+	h.Io.On("unsubscribe_status", func(s socketio.Socket, msg interface{}) {
 		data, ok := msg.(map[string]interface{})
 		if !ok {
 			return
@@ -362,7 +345,7 @@ func (h *Hub) setupSocketIO() {
 		}
 	})
 
-	h.Server.OnDisconnect("/", func(s socketio.Conn, reason string) {
+	h.Io.On("disconnect", func(s socketio.Socket) {
 		state, ok := s.Context().(*ConnectionState)
 		if !ok || !state.Authed {
 			return
@@ -451,13 +434,12 @@ func (h *Hub) broadcastMessage(message []byte) {
 		eventName = "message"
 	}
 
-	// Adapt to go-socket.io Broadcast logic
-	// Server.BroadcastToRoom(namespace, room, event, args...)
-	h.Server.BroadcastToRoom("/", msg.RoomID, eventName, data)
+	// Broadcast to room using the Fiber Socket.IO library
+	h.Io.To(msg.RoomID).Emit(eventName, data)
 }
 
 func (h *Hub) dispatchStatusEvent(event StatusEvent) {
-	h.Server.BroadcastToRoom("/", "status:"+event.UserID, event.Type, event)
+	h.Io.To("status:"+event.UserID).Emit(event.Type, event)
 }
 
 func (h *Hub) saveAndPublishStatus(userID, username string, isOnline bool, version int64) {

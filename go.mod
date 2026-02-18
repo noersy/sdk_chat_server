@@ -3,9 +3,9 @@ module github.com/noersy/websocket-chat
 go 1.24.0
 
 require (
+	github.com/doquangtan/gofiber-socket.io v0.1.9
 	github.com/gofiber/fiber/v2 v2.52.11
 	github.com/google/uuid v1.6.0
-	github.com/googollee/go-socket.io v1.7.0
 	github.com/redis/go-redis/v9 v9.0.5
 )
 
