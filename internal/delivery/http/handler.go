@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -23,9 +22,12 @@ func NewHandler(hub *ws.Hub) *Handler {
 func (h *Handler) SetupRoutes(app *fiber.App) {
 	// Global middleware
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowMethods: "GET,POST,OPTIONS",
-		AllowHeaders: "Accept,Content-Type,Authorization",
+		AllowOriginsFunc: func(origin string) bool {
+			return true
+		},
+		AllowMethods:     "GET,POST,OPTIONS",
+		AllowHeaders:     "Accept,Content-Type,Authorization,X-Requested-With,Origin",
+		AllowCredentials: true,
 	}))
 	app.Use(logger.New())
 
@@ -34,9 +36,6 @@ func (h *Handler) SetupRoutes(app *fiber.App) {
 
 	// REST → WebSocket bridge
 	app.Post("/messages", h.handleBroadcast)
-
-	// Socket.IO - mounts handler using adaptor
-	app.All("/socket.io/*", adaptor.HTTPHandler(h.hub.Server))
 }
 
 func (h *Handler) healthCheck(c *fiber.Ctx) error {

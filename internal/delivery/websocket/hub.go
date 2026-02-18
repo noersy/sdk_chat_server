@@ -78,11 +78,6 @@ func NewHub(redisClient *redis.Client) *Hub {
 
 // Run starts the Redis PubSub listener for cross-instance broadcasting
 func (h *Hub) Run() {
-	go func() {
-		if err := h.Server.Serve(); err != nil {
-			log.Printf("Socket.IO listen error: %s", err)
-		}
-	}()
 	go h.subscribeToRedis()
 }
 
