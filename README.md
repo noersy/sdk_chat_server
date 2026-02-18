@@ -1,59 +1,32 @@
-# WebSocket Chat Application - Backend
+# WebSocket Chat Server - Backend
 
-A production-ready real-time chat application built with Go 1.24+, WebSockets, and PostgreSQL. This backend provides a robust REST API for user and room management alongside a high-performance WebSocket server for real-time messaging.
+A scalable, real-time chat server built with Go, Fiber, Socket.IO, and Redis. Designed for high performance and horizontal scaling.
 
 ## 🚀 Features
 
-### Core
-
-- **Clean Architecture**: Separation of concerns (Domain, UseCase, Repository, Delivery).
-- **RESTful API**: comprehensive endpoints for users, rooms, and messages.
-- **Real-time Messaging**: Low-latency WebSocket communication.
-- **Database**: PostgreSQL with automatic schema migration and relational integrity.
-
-### User Management
-
-- ✅ User Registration & Login
-- ✅ Profile Management (Update details, Change password)
-- ✅ Secure Password Storage (Bcrypt hashing)
-- ✅ Account Deletion (Cascading)
-
-### Room Management
-
-- ✅ Create/Delete Rooms (Group & Private)
-- ✅ Manage Members (Add/Remove users)
-- ✅ List User's Rooms
-- ✅ Room Details & Updates
-
-### Messaging
-
-- ✅ Real-time message broadcasting
-- ✅ Message History (Paginated REST API)
-- ✅ Message Status (Sent, Delivered, Read)
-- ✅ User Online/Offline Status
+- **Socket.IO Support**: Real-time bidirectional event-based communication.
+- **Redis Adapter**: Horizontal scaling support (clustering).
+- **Broadcast API**: REST endpoint to push messages to all connected clients in a room.
+- **Health Check**: Simple endpoint for load balancers.
+- **Dockerized**: Ready for production deployment.
 
 ## 🏗 Architecture
-
-This project follows Clean Architecture and Domain-Driven Design (DDD) principles:
 
 ```
 cmd/server/          - Application entry point
 config/              - Configuration management
 internal/
-  ├── domain/        - Business entities (User, Room, Message) & Repository interfaces
-  ├── usecase/       - Business logic (UserUC, RoomUC, ChatUC)
-  ├── delivery/      - Transport layer
-  │   ├── http/      - REST handlers & DTOs
-  │   └── websocket/ - WebSocket handlers & Hub
-  └── infrastructure/- Database implementations (PostgreSQL)
-pkg/utils/           - Utility functions (Password hash, UUID)
+  ├── delivery/
+  │   ├── http/      - REST handlers (Health Check, Broadcast)
+  │   └── websocket/ - Socket.IO Hub & Logic
+  └── infrastructure/- Redis integration
 ```
 
 ## 🛠 Prerequisites
 
-- Go 1.24 or higher
-- PostgreSQL 12 or higher
-- Git
+- Go 1.18 or higher
+- Redis 6+ (Optional, for scaling)
+- Docker (Recommended)
 
 ## 📦 Setup Instructions
 
@@ -64,13 +37,7 @@ git clone <repository-url>
 cd backend
 ```
 
-### 2. Install Dependencies
-
-```bash
-go mod download
-```
-
-### 3. Configure Environment Variables
+### 2. Configure Environment Variables
 
 Copy the example configuration:
 
@@ -78,92 +45,73 @@ Copy the example configuration:
 cp .env.example .env
 ```
 
-Edit `.env` with your local configuration:
+Edit `.env`:
 
 ```env
-# Server Configuration
+# Server
 SERVER_PORT=8080
 SERVER_HOST=0.0.0.0
 
-# Database Configuration
-# Ensure these match your local PostgreSQL setup
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=your_password
-DB_NAME=chat_db
+# Redis (Required for scaling, optional for single node)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
 ```
 
-### 4. Create Database
+### 3. Run with Docker (Recommended)
 
 ```bash
-psql -U postgres -c "CREATE DATABASE chat_db;"
+docker compose up --build -d
 ```
 
-### 5. Run the Server
-
-```bash
-go run ./cmd/server/main.go
-```
-
-The server will automatically run migrations to create all required tables on startup.
-
-**Server URL:** `http://localhost:8080`
+The server will be available at `http://localhost:8080`.
 
 ## 📚 API Documentation
 
-The backend provides a complete set of REST endpoints.
-
-👉 **[See Full API Documentation](../API_ENDPOINTS.md)**
-
-### Quick Overview
+### REST Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/users` | Register new user |
-| POST | `/api/auth/login` | User login |
-| POST | `/api/rooms` | Create new room |
-| GET | `/api/rooms/{id}/messages` | Get message history |
-| GET | `/health` | Server health check |
+| GET | `/health` | Server health check (Returns `{"status": "ok"}`) |
+| POST | `/messages` | Broadcast message to a room |
 
-## 🔌 WebSocket API
+#### Broadcast Message
 
-Connect to the WebSocket endpoint for real-time events.
+**POST** `/messages`
 
-**URL:** `ws://localhost:8080/ws?user_id=<UUID>&username=<NAME>`
+Body:
 
-### Event Types
-
-- `join` / `leave`: Room presence
-- `message`: Sending text messages
-- `message_delivered` / `message_read`: Read receipts
-- `user_status`: Online/Offline updates
-
-## 🧪 Development
-
-### Run Tests
-
-```bash
-go test ./...
+```json
+{
+  "room_id": "room-123",
+  "content": "Hello World",
+  "user_id": "user-1",
+  "username": "Alice",
+  "type": "text"
+}
 ```
 
-### Code Formatting
+### Socket.IO Events
 
-```bash
-go fmt ./...
-```
+Connect using any Socket.IO client (v2/v3/v4).
 
-## 📝 Roadmap
+**Namespace:** `/socket.io/`
 
-- [x] Basic REST API (CRUD)
-- [x] WebSocket Chat
-- [x] Message History & Pagination
-- [x] User & Room Management
-- [x] Message Status (Sent/Delivered/Read)
-- [ ] JWT Authentication Middleware
-- [ ] Push Notifications
-- [ ] File/Image Uploads
-- [ ] Redis Adapter for Horizontal Scaling
+**Client -> Server Events:**
+
+- `join`: Join a specific room.
+- `leave`: Leave a room.
+- `message`: Send a message to the room.
+
+**Server -> Client Events:**
+
+- `message`: Receive a new message.
+
+## 🚀 Deployment (Jenkins & Nginx)
+
+This repository includes deployment scripts (`deploy.sh`, `generate-env.sh`) for CI/CD pipelines and an `nginx.conf` template for reverse proxy setup.
+
+See [deploy.sh](deploy.sh) for details.
 
 ## 📄 License
 
