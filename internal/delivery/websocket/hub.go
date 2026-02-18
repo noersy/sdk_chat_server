@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	socketio "github.com/doquangtan/gofiber-socket.io/v2"
+	socketio "github.com/googollee/go-socket.io"
 	"github.com/noersy/websocket-chat/pkg/utils"
 	"github.com/redis/go-redis/v9"
 )
@@ -37,22 +37,25 @@ type ConnectionState struct {
 }
 
 type Hub struct {
-	Io             *socketio.Io
+	Server         *socketio.Server
 	redisClient    *redis.Client
 	mu             sync.RWMutex
 	userSockets    map[string]map[string]bool // userID -> set of socket IDs
 	statusMu       sync.Mutex
 	statusVersions map[string]int64 // userID -> monotonic version counter
+	socketState    map[string]*ConnectionState // socket ID -> connection state
+	stateLock      sync.RWMutex
 }
 
 func NewHub(redisClient *redis.Client) *Hub {
-	io := socketio.New()
+	server := socketio.NewServer(nil)
 
 	h := &Hub{
-		Io:             io,
+		Server:         server,
 		redisClient:    redisClient,
 		userSockets:    make(map[string]map[string]bool),
 		statusVersions: make(map[string]int64),
+		socketState:    make(map[string]*ConnectionState),
 	}
 	h.setupSocketIO()
 	return h
@@ -65,8 +68,8 @@ func (h *Hub) Run() {
 
 // Close shuts down the server
 func (h *Hub) Close() {
-	if h.Io != nil {
-		h.Io.Close()
+	if h.Server != nil {
+		h.Server.Close()
 	}
 }
 
@@ -78,14 +81,19 @@ func (h *Hub) PublishMessage(message []byte) {
 }
 
 func (h *Hub) setupSocketIO() {
-	h.Io.On("connection", func(s socketio.Socket) {
+	h.Server.OnConnect("/", func(s socketio.Conn) error {
 		log.Printf("Socket connected: %s", s.ID())
-		s.SetContext(&ConnectionState{})
+		h.stateLock.Lock()
+		h.socketState[s.ID()] = &ConnectionState{}
+		h.stateLock.Unlock()
+		return nil
 	})
 
-	h.Io.On("authenticate", func(s socketio.Socket, msg interface{}) {
-		state := s.Context().(*ConnectionState)
-		if state.Authed {
+	h.Server.OnEvent("/", "authenticate", func(s socketio.Conn, msg interface{}) {
+		h.stateLock.RLock()
+		state := h.socketState[s.ID()]
+		h.stateLock.RUnlock()
+		if state == nil || state.Authed {
 			return
 		}
 
@@ -95,7 +103,7 @@ func (h *Hub) setupSocketIO() {
 				"error": "invalid auth payload",
 				"code":  "INVALID_PAYLOAD",
 			})
-			s.Disconnect()
+			s.Close()
 			return
 		}
 
@@ -105,7 +113,7 @@ func (h *Hub) setupSocketIO() {
 				"error": "user_id is required",
 				"code":  "MISSING_USER_ID",
 			})
-			s.Disconnect()
+			s.Close()
 			return
 		}
 
@@ -118,7 +126,9 @@ func (h *Hub) setupSocketIO() {
 		state.UserID = uid
 		state.Username = uname
 		state.Authed = true
-		s.SetContext(state)
+		h.stateLock.Lock()
+		h.socketState[s.ID()] = state
+		h.stateLock.Unlock()
 
 		h.mu.Lock()
 		if h.userSockets[uid] == nil {
@@ -141,9 +151,11 @@ func (h *Hub) setupSocketIO() {
 		log.Printf("Socket authenticated: %s (%s)", uname, uid)
 	})
 
-	h.Io.On("join", func(s socketio.Socket, msg interface{}) {
-		state := s.Context().(*ConnectionState)
-		if !state.Authed {
+	h.Server.OnEvent("/", "join", func(s socketio.Conn, msg interface{}) {
+		h.stateLock.RLock()
+		state := h.socketState[s.ID()]
+		h.stateLock.RUnlock()
+		if state == nil || !state.Authed {
 			s.Emit("error", map[string]interface{}{"error": "not authenticated", "code": "NOT_AUTHENTICATED"})
 			return
 		}
@@ -182,9 +194,11 @@ func (h *Hub) setupSocketIO() {
 		}
 	})
 
-	h.Io.On("leave", func(s socketio.Socket, msg interface{}) {
-		state := s.Context().(*ConnectionState)
-		if !state.Authed {
+	h.Server.OnEvent("/", "leave", func(s socketio.Conn, msg interface{}) {
+		h.stateLock.RLock()
+		state := h.socketState[s.ID()]
+		h.stateLock.RUnlock()
+		if state == nil || !state.Authed {
 			return
 		}
 
@@ -212,9 +226,11 @@ func (h *Hub) setupSocketIO() {
 		}
 	})
 
-	h.Io.On("message", func(s socketio.Socket, msg interface{}) {
-		state := s.Context().(*ConnectionState)
-		if !state.Authed {
+	h.Server.OnEvent("/", "message", func(s socketio.Conn, msg interface{}) {
+		h.stateLock.RLock()
+		state := h.socketState[s.ID()]
+		h.stateLock.RUnlock()
+		if state == nil || !state.Authed {
 			s.Emit("error", map[string]interface{}{"error": "not authenticated", "code": "NOT_AUTHENTICATED"})
 			return
 		}
@@ -291,9 +307,11 @@ func (h *Hub) setupSocketIO() {
 		})
 	})
 
-	h.Io.On("subscribe_status", func(s socketio.Socket, msg interface{}) {
-		state := s.Context().(*ConnectionState)
-		if !state.Authed {
+	h.Server.OnEvent("/", "subscribe_status", func(s socketio.Conn, msg interface{}) {
+		h.stateLock.RLock()
+		state := h.socketState[s.ID()]
+		h.stateLock.RUnlock()
+		if state == nil || !state.Authed {
 			return
 		}
 
@@ -334,20 +352,25 @@ func (h *Hub) setupSocketIO() {
 		})
 	})
 
-	h.Io.On("unsubscribe_status", func(s socketio.Socket, msg interface{}) {
+	h.Server.OnEvent("/", "unsubscribe_status", func(s socketio.Conn, msg interface{}) {
 		data, ok := msg.(map[string]interface{})
 		if !ok {
 			return
 		}
 		targetUserID, _ := data["target_user_id"].(string)
 		if targetUserID != "" {
-			s.Leave("status:" + targetUserID)
+			s.LeaveAll()
 		}
 	})
 
-	h.Io.On("disconnect", func(s socketio.Socket) {
-		state, ok := s.Context().(*ConnectionState)
-		if !ok || !state.Authed {
+	h.Server.OnDisconnect("/", func(s socketio.Conn, reason string) {
+		h.stateLock.RLock()
+		state := h.socketState[s.ID()]
+		h.stateLock.RUnlock()
+		if state == nil || !state.Authed {
+			h.stateLock.Lock()
+			delete(h.socketState, s.ID())
+			h.stateLock.Unlock()
 			return
 		}
 
@@ -389,6 +412,10 @@ func (h *Hub) setupSocketIO() {
 			go h.saveAndPublishStatus(state.UserID, state.Username, false, statusVersion)
 		}
 		log.Printf("Socket disconnected: %s (%s) lastSocket=%v", state.Username, state.UserID, lastSocket)
+
+		h.stateLock.Lock()
+		delete(h.socketState, s.ID())
+		h.stateLock.Unlock()
 	})
 }
 
@@ -434,12 +461,12 @@ func (h *Hub) broadcastMessage(message []byte) {
 		eventName = "message"
 	}
 
-	// Broadcast to room using the Fiber Socket.IO library
-	h.Io.To(msg.RoomID).Emit(eventName, data)
+	// Broadcast to room
+	h.Server.BroadcastToRoom("/", msg.RoomID, eventName, data)
 }
 
 func (h *Hub) dispatchStatusEvent(event StatusEvent) {
-	h.Io.To("status:"+event.UserID).Emit(event.Type, event)
+	h.Server.BroadcastToRoom("/", "status:"+event.UserID, event.Type, event)
 }
 
 func (h *Hub) saveAndPublishStatus(userID, username string, isOnline bool, version int64) {

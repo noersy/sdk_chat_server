@@ -25,7 +25,7 @@ func main() {
 
 	// Initialize WebSocket hub with Redis
 	hub := websocket.NewHub(redisClient)
-	hub.Run() // Starts the socket.io server and redis subscriber
+	hub.Run() // Starts the redis subscriber
 
 	// Initialize HTTP server
 	server := http.NewServer(cfg.Server, hub)
@@ -35,15 +35,16 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("Server started on %s:%s", cfg.Server.Host, cfg.Server.Port)
+		log.Printf("REST API server starting on %s:%s", cfg.Server.Host, cfg.Server.Port)
 		if err := server.Start(); err != nil {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
 
 	<-quit
-	log.Println("Shutting down server...")
+	log.Println("Shutting down servers...")
 	if err := server.Shutdown(); err != nil {
 		log.Printf("Server shutdown error: %v", err)
 	}
+	hub.Close()
 }
